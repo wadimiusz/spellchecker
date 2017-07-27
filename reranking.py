@@ -88,8 +88,8 @@ def corpus2features(sentences, suggestions):
 	#result = np.vstack([result, [len(OOV) for OOV in OOVs]])
 	#лучше бы так:
 	result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if not all_spell(sug)]) for align in aligned]]) #4
-	#result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if all_spell(sent) and not all_spell(sug)]) for align in aligned]]) #5
-	#result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if not all_spell(sent) and all_spell(sug)]) for align in aligned]]) #6
+	result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if all_spell(sent) and not all_spell(sug)]) for align in aligned]]) #5
+	result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if not all_spell(sent) and all_spell(sug)]) for align in aligned]]) #6
 	
 	more_frequent_group1 = lambda group1, group2: min([c[word] for word in group1], default = 0) - min([c[word] for word in group2], default = 0)
 	more_frequent_group2 = lambda group1, group2: min([c[word] for word in group2], default = 0) - min([c[word] for word in group1], default = 0)
@@ -99,51 +99,51 @@ def corpus2features(sentences, suggestions):
 	more_freq1 = [more_frequent_sent1(pair) for pair in aligned]
 	more_freq2 = [more_frequent_sent2(pair) for pair in aligned]
 
-	result = np.vstack([result, more_freq1]) #5
-	result = np.vstack([result, more_freq2]) #6
+	result = np.vstack([result, more_freq1]) #7
+	result = np.vstack([result, more_freq2]) #8
 	#много ли слов сменилось с более частотных на менее и наоборот	
 	
 	OOV_corrections = [sum([editdistance.eval(sent, sug) for (sent, sug) in OOV]) for OOV in OOVs]
 	dict_word_corrections = [sum([editdistance.eval(sent, sug) for (sent, sug) in dict_word]) for dict_word in dict_words]
 	
-	result = np.vstack([result, OOV_corrections]) #7
-	result = np.vstack([result, dict_word_corrections]) #8
+	result = np.vstack([result, OOV_corrections]) #9
+	result = np.vstack([result, dict_word_corrections]) #10
 	
 	#фича №8 -- number of corrections in capitalized words, нам неактуально
 	
 	distance_one = [sum([1 for (sent, sug) in align if editdistance.eval(sent, sug) == 1]) for align in aligned]
-	result = np.vstack([result, distance_one]) #9
+	result = np.vstack([result, distance_one]) #11
 	
 	#number of corrections by phonetic similarity пока не разработана
 	#number of corrections by word lists пока не разработана
 	
-	result = np.vstack([result, [space_insertions(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #10
-	result = np.vstack([result, [space_deletions(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #11
+	result = np.vstack([result, [space_insertions(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #12
+	result = np.vstack([result, [space_deletions(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #13
 	OOV_dictionary_partitions = [sum([1 for (sent, sug) in align if has_dictionary_partitions(sent)]) for align in aligned]
-	result = np.vstack([result, OOV_dictionary_partitions]) #12; низачем похоже не нужно
+	result = np.vstack([result, OOV_dictionary_partitions]) #14; низачем похоже не нужно
 	
 	#result.append(pos_score(word2pos(suggestion)))
-	result = np.vstack([result, [morpho_score(suggestion) for suggestion in queries2morpho(suggestions)]]) #13
+	result = np.vstack([result, [morpho_score(suggestion) for suggestion in queries2morpho(suggestions)]]) #15
 	
 	distance1 = lambda word1, word2: distance(word1, word2, delete_cost = lambda x: 10, insert_cost = lambda x: 1)
 	distance2 = lambda word1, word2: distance(word1, word2, delete_cost = lambda x: 1, insert_cost = lambda x: 10)
 	
-	result = np.vstack([result, [distance(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #14
-	result = np.vstack([result, [distance1(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #15
-	result = np.vstack([result, [distance2(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #16
+	result = np.vstack([result, [distance(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #16
+	result = np.vstack([result, [distance1(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #17
+	result = np.vstack([result, [distance2(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #18
 	
-	result = np.vstack([result, [editdistance.eval(word2phonetics(' '.join(sentence)), word2phonetics(' '.join(suggestion))) for sentence, suggestion in sent_sug]]) #17	
+	result = np.vstack([result, [editdistance.eval(word2phonetics(' '.join(sentence)), word2phonetics(' '.join(suggestion))) for sentence, suggestion in sent_sug]]) #19
 	
 	my_w2v1 = Word2Vec.load('word2vecs/my_w2v1')
-	result = np.vstack([result, my_w2v1.score(suggestions)]) #18
+	result = np.vstack([result, my_w2v1.score(suggestions)]) #20
 	
 
 	#последняя фича -- предложная модель, её мы ещё не разработали
 	sugs0 = corpus2prep0([' '.join(suggestion) for suggestion in suggestions])
 	sugs1 = corpus2prep1([' '.join(suggestion) for suggestion in suggestions])
 	
-	result = np.vstack([result, [score0(sug) for sug in sugs0]]) #19
-	result = np.vstack([result, [sum([score1(x) for x in sug]) for sug in sugs1]]) #20
+	result = np.vstack([result, [score0(sug) for sug in sugs0]]) #21
+	result = np.vstack([result, [sum([score1(x) for x in sug]) for sug in sugs1]]) #22
 	
 	return np.array(result).transpose()
 
@@ -182,7 +182,7 @@ def main():
 	corpus_lines = f.read().split('\r\n')
 	border = int(corpus_lines.pop(0))
 	marked_queries = [query.rsplit(',', 3) for query in corpus_lines[:border]]
-	misspelled = [(tokenize(query), tokenize(suggestion)) for (raw_query, query, suggestion, label) in marked_queries if label == '1' and suggestion != '<?????>' and suggestion != ''] #debug
+	misspelled = [(tokenize(query), tokenize(suggestion)) for (raw_query, query, suggestion, label) in marked_queries if label == '1' and suggestion != '<?????>' and suggestion != '']
 
 	f = codecs.open("queries/queries1.csv", mode = "rU", encoding = "utf-8")
 	lines = f.read().split('\r\n')
