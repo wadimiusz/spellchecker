@@ -33,6 +33,7 @@ from itertools import product, groupby
 from functools import reduce
 
 from weight_levenshtein import distance, delete_cost, insert_cost, substitute_cost
+from Levenshtein import distance as simple_distance
 
 print(time.strftime('%X %x'))
 
@@ -90,8 +91,8 @@ def corpus2features(sentences, suggestions):
 	#result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if all_spell(sent) and not all_spell(sug)]) for align in aligned]]) #5
 	#result = np.vstack([result, [len([(sent, sug) for (sent, sug) in align if not all_spell(sent) and all_spell(sug)]) for align in aligned]]) #6
 	
-	more_frequent_group1 = lambda group1, group2: np.mean([c[word] for word in group1]) > np.mean([c[word] for word in group2])
-	more_frequent_group2 = lambda group1, group2: np.mean([c[word] for word in group1]) < np.mean([c[word] for word in group2])
+	more_frequent_group1 = lambda group1, group2: min([c[word] for word in group1], default = 0) - min([c[word] for word in group2], default = 0)
+	more_frequent_group2 = lambda group1, group2: min([c[word] for word in group2], default = 0) - min([c[word] for word in group1], default = 0)
 	more_frequent_sent1 = lambda pairs: len([1 for pair in pairs if more_frequent_group1(*pair)])
 	more_frequent_sent2 = lambda pairs: len([1 for pair in pairs if more_frequent_group2(*pair)])
 
@@ -176,12 +177,12 @@ def iter_best_suggestion(query, score):
 		iterations[counter] = 1	
 	return result
 
-if __name__ == '__main__':
+def main():
 	f = codecs.open("corpus2.csv", mode = "rU", encoding = "utf-8-sig")
 	corpus_lines = f.read().split('\r\n')
 	border = int(corpus_lines.pop(0))
 	marked_queries = [query.rsplit(',', 3) for query in corpus_lines[:border]]
-	misspelled = [(tokenize(query), tokenize(suggestion)) for (raw_query, query, suggestion, label) in marked_queries if label == '1' and suggestion != '<?????>' and suggestion != '']
+	misspelled = [(tokenize(query), tokenize(suggestion)) for (raw_query, query, suggestion, label) in marked_queries if label == '1' and suggestion != '<?????>' and suggestion != ''] #debug
 
 	f = codecs.open("queries/queries1.csv", mode = "rU", encoding = "utf-8")
 	lines = f.read().split('\r\n')
@@ -197,7 +198,7 @@ if __name__ == '__main__':
 	#subprocess.call('python3 morpho_model.py train', shell = True)
 
 	kf = KFold(n_splits = 5, shuffle = True)
-	(TPs, FPs, FNs, F1s) = ([], [], [], [])
+	(TPs, FPs, FNs, F1s, precisions, recalls) = ([], [], [], [], [], [])
 	iteration = 0
 	for iteration, (train_index, test_index) in enumerate(kf.split(misspelled)):
 		print("CV iteration #%d" % iteration)
@@ -207,29 +208,35 @@ if __name__ == '__main__':
 	
 		if 'save' in sys.argv:
 			print("Creating the training set")
-			print("Winners...")
-			winners = corpus2features([query for (query, suggestion) in misspelled_train], [suggestion for (query, suggestion) in misspelled_train])
-			pickle.dump(winners, open('winners.pkl', 'wb'))
-			#winners = pickle.load(open('winners.pkl', 'rb'))	
-			print("All losers...")
-			lens = []
-			for counter, (query, sug) in enumerate(misspelled_train):
-				suggestion = suggest(query)
-				lens.append(len(suggestion) - int(sug in suggestion))
+			for counter, (query, suggestion) in enumerate(misspelled_train):
+				print("Trying to learn from query %s at number %d" % (query, counter))
+				sugs = sorted(suggest(query), key = lambda x: simple_distance(' '.join(x), ' '.join(suggestion)))
+				(new_winner, old_winner) = (sugs[0], query)
+				for i in range(10):
+					print("New winner: ", new_winner) #debug
+					losers = sugs[1:]
+					winner_vect = corpus2features([old_winner], [new_winner])
+					losers_vect = corpus2features([old_winner] * len(losers), losers)
+					X_train_append = winner_vect - losers_vect
+					try:					
+						X_train = np.vstack([X_train, X_train_append])
+						y_train = np.hstack([y_train, [1] * (len(sugs) - 1)])
+					except NameError:
+						X_train = X_train_append
+						y_train = np.array([1] * (len(sugs) - 1))
+		
+					X_train = np.vstack([X_train, -X_train_append])
+					y_train = np.hstack([y_train, [0] * (len(sugs) - 1)])
+		
+					sugs = sorted(suggest(new_winner), key = lambda x: simple_distance(' '.join(x), ' '.join(suggestion)))
+					(new_winner, old_winner) = (sugs[0], new_winner)
+		
+					if len(sugs) == 0 or new_winner == old_winner:
+						break
 	
-			#sum_lens = [sum(lens[:i]) for i+1 in range(len(lens)-1)]
-			all_loser_suggestions = [sug for counter, (query, suggestion) in enumerate(misspelled_train) for sug in suggest(query) if sug != suggestion]
-			all_loser_queries = sum([[query] * lens[counter] for counter, (query, suggestion) in enumerate(misspelled_train)], [])
-			all_losers = corpus2features(all_loser_queries, all_loser_suggestions)
-			pickle.dump(all_losers, open('all_losers.pkl', 'wb'))
-			winners = winners.repeat(lens, axis = 0)
-			X_train = winners - all_losers
-			y_train = np.ones((winners.shape[0],))
-			X_train = np.vstack([X_train, -X_train])
-			y_train = np.hstack([y_train, 1-y_train])
-	
-			joblib.dump(X_train, 'X_train.pkl')
-			joblib.dump(y_train, 'y_train.pkl')
+				assert X_train.shape[0] == y_train.shape[0]	
+				joblib.dump(X_train, 'X_train.pkl')
+				joblib.dump(y_train, 'y_train.pkl')
 		
 		else:
 			print("Loading the training set")
@@ -258,18 +265,12 @@ if __name__ == '__main__':
 
 
 		print("Models are ready")
-
-		#if __name__ == '__main__':
-			#suggestions = [print(counter) or suggest(sentence) for counter, (sentence, correct_answer) in enumerate(misspelled_test)]
-			#pickle.dump(suggestions, open('suggestions.pkl', 'wb'))
-			#suggestions = pickle.load(open('suggestions.pkl', 'rb'))
 		
 		logreg_function = lambda query, s: -logreg.decision_function(Scaler.transform(corpus2features([query] * len(s), s)))
 		MLP_function = lambda query, s: -MLP.predict_proba(Scaler.transform(corpus2features([query] * len(s), s)))[:, 1]
 		SVM_function = lambda query, words: -SVM.decision_function([sent2features(words, query)])
 		
 		if 'logreg' in sys.argv:
-			result = []
 			result = []
 			(TP, FN, FP) = (0, 0, 0)
 			for (counter, (query, correct_answer)) in enumerate(misspelled_test):
@@ -297,10 +298,20 @@ if __name__ == '__main__':
 			print("Recall: ", recall)
 			print("F1: ", F1)
 			F1s.append(F1)
+			precisions.append(precision)
+			recalls.append(recall)
 			print("F1s:")
 			print(*F1s)
+			print("Precisions: ", *precisions)
+			print("Recalls: ", *recalls)
 			f = open('F1s.txt', 'w')
 			f.write(str(F1s))
+			f.close()
+			f = open('precisions.txt', 'w')
+			f.write(str(precisions))
+			f.close()
+			f = open('recalls.txt', 'w')
+			f.write(str(recalls))
 			f.close()
 	
 		if 'MLP' in sys.argv:
@@ -329,4 +340,7 @@ if __name__ == '__main__':
 					f.write('\n'.join(result))
 					f.close()
 
-print(time.strftime('%X %x'))
+	print(time.strftime('%X %x'))
+
+if __name__ == '__main__':
+	main()
