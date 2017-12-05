@@ -1,12 +1,12 @@
 import re, ngram_model, editdistance, Levenshtein, hunspell, codecs, time, pickle, sys, time, subprocess
 #import pos_model
-import morpho_model
+#import morpho_model
 
 import numpy as np
 
 from metrics import alignment
 #from pos_model import word2pos
-from morpho_model import queries2morpho
+#from morpho_model import queries2morpho
 from gensim.models import Word2Vec
 
 from sklearn.linear_model import LogisticRegression
@@ -24,11 +24,6 @@ from random import shuffle
 from word2phonetics import word2phonetics
 from metrics import count
 
-from prep_model0 import corpus2prep as corpus2prep0
-from prep_model0 import score as score0
-from prep_model1 import corpus2prep as corpus2prep1
-from prep_model1 import score as score1
-
 from itertools import product, groupby
 from functools import reduce
 
@@ -38,11 +33,12 @@ from Levenshtein import distance as simple_distance
 print(time.strftime('%X %x'))
 
 h = hunspell.HunSpell('ru_RU1_utf.dic', 'ru_RU_utf.aff')
+h.add('_NUMBER_')
 c = joblib.load('c.pkl')
 
 #pos_score = pos_model.ngram_score
 ngram_score = ngram_model.ngram_score
-morpho_score = morpho_model.ngram_score
+#morpho_score = morpho_model.ngram_score
 
 #def suggest(s):
 #	s = ' '.join(s)
@@ -60,7 +56,7 @@ morpho_score = morpho_model.ngram_score
 #	return suggestions
 
 
-has_dictionary_partitions = lambda word: max([min([h.spell(word) for word in suggestion.split(' ')] + [True]) for suggestion in h.suggest(word)] + [False])
+has_dictionary_partitions = lambda word: max([min([h.spell(word) for word in suggestion.split()] + [True]) for suggestion in h.suggest(word)] + [False])
 
 pattern = re.compile('[0-9]+[а-я]?')
 mask = lambda words: ['_NUMBER_' if pattern.fullmatch(word) else word for word in words]
@@ -74,7 +70,38 @@ def space_insertions(sentence, suggestion):
 def space_deletions(sentence, suggestion):
 	return len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'delete' and sentence[spos] == ' '])
 
+def typo_types(sentence, suggestion):
+	sentence = '   ' + sentence + '   '
+	suggestion = '   ' + suggestion + '   '
+	res = [len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos] + suggestion[dpos]) in ['еи', 'ие', 'ао', 'оа']])]
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos-1:spos+1] + suggestion[dpos-1:dpos+1]) in ['жыжи', 'шыши', 'чяча', 'чючу', 'щющу', 'шоше', 'шошё', 'шоше', 'шёшо']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos-1:spos+1] + suggestion[dpos-1:dpos+1]) in ['цыци', 'цицы']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos:spos+3] + suggestion[dpos:dpos+3]) in ['ываова']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos:spos+3] + suggestion[dpos:dpos+3]) in ['арооро', 'алооло']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos] + suggestion[dpos]) in ['эе'] and spos > 0]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos-1:spos+1] + suggestion[dpos-1:spos+1]) in ['щаще']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos-2:spos+1] + suggestion[dpos-2:dpos+1]) in ['препри', 'припре']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos] + suggestion[dpos]) in ['эи'] and spos == dpos == 0]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and ((sentence[spos-1:spos+1] + suggestion[dpos]) in ['йоё', 'йое'] or (sentence[spos] + suggestion[dpos-1:dpos+1]) in ['ёйо', 'ейо'])]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos] + suggestion[dpos]) in ['пб', 'бп', 'вф', 'фв', 'гк', 'кг', 'тд', 'дт', 'сз', 'зс', 'жш', 'шж', 'bp', 'pb', 'sz', 'zs', 'vf', 'fv', 'vf', 'fv']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'insert' and (sentence[spos-1:spos+1] + suggestion[dpos-1:dpos+2]) in ['знздн', 'снстн', 'слстл']  or (sentence[spos-1:spos+2] + suggestion[dpos-1:dpos+3]) in 'нстнтст' or (sentence[spos-1:spos+2] + suggestion[dpos-1:dpos+1]) in ['зднзн', 'стнсн', 'стлсл'] or (sentence[spos-1:spos+3] + suggestion[dpos-1:dpos+2]) in ['нтстнст']]))
+	#ты пока не придумал, как считать случаи типа детство -- децтво
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos:spos+2] + suggestion[dpos:dpos+2]) in ['хкгк']]))
+	#ты не сделал замены ш -- шч -- сч и тд
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'delete' and (sentence[spos-1:spos+1]) in ['нн', 'сс', 'фф', 'мм'] or type == 'insert' and suggestion[dpos-1:dpos+1] in ['нн', 'сс', 'фф', 'мм']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'replace' and (sentence[spos] + suggestion[dpos]) in ['ъь', 'ьъ']]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'insert' and (suggestion[dpos] == 'ь' and dpos == len(suggestion) -4)]))
+	res.append(len([1 for (type, spos, dpos)  in Levenshtein.editops(sentence, suggestion) if type == 'delete' and (sentence[spos-1:spos+3] + suggestion[dpos-1:spos+2]) in ['тьсятся'] or type == 'insert' and (sentence[spos-1:spos+2] + suggestion[dpos-1:dpos+3]) in ['тсяться']]))
+	
+
+	return res
+
+def typo_types_matrix(sentences, suggestions):
+	return np.transpose([typo_types(sent, sug) for sent, sug in zip(sentences, suggestions)])
+	
+	
 def corpus2features(sentences, suggestions):
+	start = time.time()
 	sent_sug = list(zip(sentences[:], suggestions[:]))
 	aligned = [[(' '.join(sent), ' '.join(sug1)) for (sent, sug1, sug2) in alignment(sentence[:], suggestion[:], suggestion[:])] for sentence, suggestion in sent_sug]
 	result = np.array([len(suggestion) for sentence, suggestion in sent_sug]) #1
@@ -123,7 +150,7 @@ def corpus2features(sentences, suggestions):
 	result = np.vstack([result, OOV_dictionary_partitions]) #13; низачем похоже не нужно
 	
 	#result.append(pos_score(word2pos(suggestion)))
-	result = np.vstack([result, [morpho_score(suggestion) for suggestion in queries2morpho(suggestions)]]) #14
+	#result = np.vstack([result, [morpho_score(suggestion) for suggestion in queries2morpho(suggestions)]]) #14
 	
 	distance1 = lambda word1, word2: distance(word1, word2, delete_cost = lambda x: 10, insert_cost = lambda x: 1)
 	distance2 = lambda word1, word2: distance(word1, word2, delete_cost = lambda x: 1, insert_cost = lambda x: 10)
@@ -133,18 +160,19 @@ def corpus2features(sentences, suggestions):
 	result = np.vstack([result, [distance2(' '.join(sentence), ' '.join(suggestion)) for sentence, suggestion in sent_sug]]) #17
 	
 	result = np.vstack([result, [editdistance.eval(word2phonetics(' '.join(sentence)), word2phonetics(' '.join(suggestion))) for sentence, suggestion in sent_sug]]) #18
-	
-	my_w2v1 = Word2Vec.load('word2vecs/my_w2v1')
-	result = np.vstack([result, my_w2v1.score(suggestions)]) #19
+	result = np.vstack([result, typo_types_matrix([' '.join(x) for x in sentences], [' '.join(x) for x in suggestions])])
+	#my_w2v1 = Word2Vec.load('word2vecs/my_w2v1')
+	#result = np.vstack([result, my_w2v1.score(suggestions)]) #19
 	
 
 	#последняя фича -- предложная модель, её мы ещё не разработали
-	sugs0 = corpus2prep0([' '.join(suggestion) for suggestion in suggestions])
-	sugs1 = corpus2prep1([' '.join(suggestion) for suggestion in suggestions])
+	#sugs0 = corpus2prep0([' '.join(suggestion) for suggestion in suggestions])
+	#sugs1 = corpus2prep1([' '.join(suggestion) for suggestion in suggestions])
 	
-	result = np.vstack([result, [score0(sug) for sug in sugs0]]) #20
-	result = np.vstack([result, [sum([score1(x) for x in sug]) for sug in sugs1]]) #21
-	
+	#result = np.vstack([result, [score0(sug) for sug in sugs0]]) #20
+	#result = np.vstack([result, [sum([score1(x) for x in sug]) for sug in sugs1]]) #21
+	duration = time.time() - start
+	print("Feature extraсtion took %f seconds, %f sentences and suggestions, average %f per sentence" % (duration, len(sentences), duration / len(sentences)))
 	return np.array(result).transpose()
 
 def best_suggestion(query, score):
@@ -209,7 +237,7 @@ def main():
 		if 'save' in sys.argv:
 			print("Creating the training set")
 			for counter, (query, suggestion) in enumerate(misspelled_train):
-				print("Trying to learn from query %s at number %d" % (query, counter))
+				print("Trying to learn from query %s at number %d, iteration %d" % (query, counter, iteration))
 				sugs = sorted(suggest(query), key = lambda x: simple_distance(' '.join(x), ' '.join(suggestion)))
 				(new_winner, old_winner) = (sugs[0], query)
 				for i in range(10):
@@ -237,6 +265,7 @@ def main():
 				assert X_train.shape[0] == y_train.shape[0]	
 				joblib.dump(X_train, 'X_train.pkl')
 				joblib.dump(y_train, 'y_train.pkl')
+				print("Dumped") # debug
 		
 		else:
 			print("Loading the training set")
@@ -253,15 +282,15 @@ def main():
 		if 'train' in sys.argv:
 			logreg = LogisticRegression(verbose = True, C = 1, fit_intercept = False).fit(X_train, y_train)
 			joblib.dump(logreg, 'logreg.pkl')
-			MLP = MLPClassifier(verbose = True, hidden_layer_sizes = (500,)).fit(X_train, y_train)
-			joblib.dump(MLP, 'MLP.pkl')
+			#MLP = MLPClassifier(verbose = True, hidden_layer_sizes = (500,)).fit(X_train, y_train)
+			#joblib.dump(MLP, 'MLP.pkl')
 
 			#SVM = SVC(verbose = True).fit(X_train, y_train)
 			#joblib.dump(SVM, 'SVM.pkl')
 		else:
 			logreg = joblib.load('logreg.pkl') 
-			MLP = joblib.load('MLP.pkl')
-			SVM = joblib.load('SVM.pkl')
+			#MLP = joblib.load('MLP.pkl')
+			#SVM = joblib.load('SVM.pkl')
 
 
 		print("Models are ready")
@@ -274,7 +303,7 @@ def main():
 			result = []
 			(TP, FN, FP) = (0, 0, 0)
 			for (counter, (query, correct_answer)) in enumerate(misspelled_test):
-				print("Trying to process " + ' '.join(query) + " with logreg")
+				print("Iteration " + str(iteration) + ": Trying to process " + ' '.join(query) + " with logreg")
 				bestie = iter_best_suggestion(query, score = logreg_function)
 				print(query, correct_answer, bestie, counter, sep = '\n')
 				(new_TP, new_FP, new_FN) = count(query, correct_answer, bestie)
